@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { width: 280px; margin: 0; font: 14px/1.5 -apple-system, "Microsoft JhengHei", sans-serif; color: #111; }
+    .wrap { padding: 16px; }
+    h1 { font-size: 15px; margin: 0 0 12px; }
+    label { display: block; font-size: 12px; color: #555; margin: 10px 0 4px; }
+    input[type=text], input[type=password], input[type=number] {
+      width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #ccc;
+      border-radius: 6px; font-size: 14px;
+    }
+    .row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+    .row input { margin: 0; }
+    button { margin-top: 16px; width: 100%; padding: 9px; border: 0; border-radius: 6px;
+      background: #2563eb; color: #fff; font-size: 14px; cursor: pointer; }
+    button.sec { background: #e5e7eb; color: #111; margin-top: 8px; }
+    .hint { font-size: 11px; color: #777; margin-top: 12px; }
+    #status { font-size: 12px; color: #16a34a; margin-top: 10px; min-height: 16px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>北科入口驗證碼自動填入</h1>
+    <div class="row" style="margin-top:4px;">
+      <input id="captchaEnabled" type="checkbox">
+      <label for="captchaEnabled" style="margin:0;color:#111;font-size:13px;">在登入頁自動辨識並填入驗證碼</label>
+    </div>
+    <hr style="border:0;border-top:1px solid #e5e7eb;margin:14px 0 4px;">
+    <div class="row">
+      <input id="keepAlive" type="checkbox">
+      <label for="keepAlive" style="margin:0;color:#111;font-size:13px;">維持登入（防止閒置 30 分鐘登出）</label>
+    </div>
+    <label>每隔幾分鐘保持連線一次（1–25）</label>
+    <input id="keepAliveMinutes" type="number" min="1" max="25" value="10">
+    <div id="kaStatus" style="font-size:12px;color:#555;margin-top:8px;">保持連線狀態：—</div>
+    <button id="save">儲存設定</button>
+    <button id="go" class="sec">立即前往登入頁</button>
+    <div id="status"></div>
+    <div class="hint">本外掛不讀取、不儲存帳號密碼，請自行輸入（或使用瀏覽器的密碼管理員）。驗證碼辨識完全在本機執行。</div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

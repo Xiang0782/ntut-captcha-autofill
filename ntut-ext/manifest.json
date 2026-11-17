@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "北科入口驗證碼自動填入 (NTUT Captcha)",
+  "version": "1.2.0",
+  "description": "自動辨識並填入北科大入口網站的驗證碼，並可定時保持登入狀態。不讀取、不儲存帳號密碼；辨識完全在本機執行。",
+  "permissions": [
+    "storage",
+    "alarms",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "https://nportal.ntut.edu.tw/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "北科驗證碼自動填入"
+  },
+  "icons": {
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://nportal.ntut.edu.tw/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "ort/*",
+        "model.onnx",
+        "charset.json"
+      ],
+      "matches": [
+        "https://nportal.ntut.edu.tw/*"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}
