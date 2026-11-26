@@ -28,8 +28,24 @@ LOGIN_PAGE = """<html><head><title>臺北科技大學</title><script>
 function login1(){ document.title='SUBMITTED'; }
 function refreshAuthImage(){ document.getElementById('authImage').src='authImage.do?datetime='+Date.now(); }
 </script></head><body><form name="login" onsubmit="login1();return false;">
-<input id="muid"><input type="password" id="mpassword"><input id="authcode">
-<img id="authImage" src="authImage.do?datetime=1"></form></body></html>"""
+<table><tr><td>帳號</td><td><input id="muid"></td></tr>
+<tr><td>密碼</td><td><input type="password" id="mpassword"></td></tr>
+<tr id="captchaRow"><td>驗證碼</td><td><input id="authcode">
+<img id="authImage" src="authImage.do?datetime=1">
+<a href="javascript:refreshAuthImage()">更新驗證碼</a></td></tr>
+<tr><td><input type="submit" value="登入"></td></tr></table></form></body></html>"""
+
+def _blank_png(w=135, h=39):
+    """Plain white PNG (OCR finds no letters), built with the stdlib only."""
+    import struct, zlib
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+    raw = b"".join(b"\x00" + b"\xff" * (w * 3) for _ in range(h))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+BLANK_PNG = _blank_png()
 
 failures = 0
 
@@ -57,7 +73,7 @@ async def service_worker(ctx):
 
 async def main():
     profile = tempfile.mkdtemp(prefix="ntut-ext-test-")
-    state = {"n": 0, "current": None}
+    state = {"n": 0, "current": None, "blank": False}
     try:
         async with async_playwright() as p:
             # 1) Credentials saved by older versions must be deleted on startup.
@@ -85,7 +101,10 @@ async def main():
             # 3) Login page flow against a server that rotates the code on every image request.
             async def route(r):
                 url = r.request.url
-                if "authImage.do" in url:
+                if "authImage.do" in url and state["blank"]:
+                    state["n"] += 1
+                    await r.fulfill(body=BLANK_PNG, content_type="image/png")
+                elif "authImage.do" in url:
                     img = IMAGES[state["n"] % len(IMAGES)]
                     state["n"] += 1
                     state["current"] = img.stem
@@ -105,11 +124,29 @@ async def main():
             check(state["n"] == 1, f"no extra captcha requests (requests={state['n']})")
             check(v["muid"] == "" and v["pwd"] == "", "account/password fields untouched")
             check(v["title"] != "SUBMITTED", "form is not auto-submitted")
+            await page.wait_for_function("document.getElementById('ntut-ext-status')?.textContent.includes('已驗證')", timeout=10000)
+            check(not await page.is_visible("#authcode") and not await page.is_visible("#authImage"),
+                  "captcha row is hidden")
+            check(await page.is_visible("#muid") and await page.is_visible("#mpassword"),
+                  "account/password fields stay visible")
 
             await page.evaluate("refreshAuthImage()")
             expected = IMAGES[1 % len(IMAGES)].stem
             await page.wait_for_function(f"authcode.value === '{expected}'", timeout=60000)
             check(state["n"] == 2, "after refreshing the captcha, the new image is recognized")
+
+            # 4) Clicking「顯示」reveals the captcha.
+            await page.click("#ntut-ext-status a")
+            check(await page.is_visible("#authcode") and await page.is_visible("#authImage"),
+                  "clicking 顯示 reveals the captcha")
+
+            # 5) Unreadable captcha: retry with new images twice, then show it to the user.
+            state["blank"] = True
+            state["n"] = 0
+            page2 = await ctx.new_page()
+            await page2.goto("https://nportal.ntut.edu.tw/index.do")
+            await page2.wait_for_selector("#authcode", state="visible", timeout=60000)
+            check(state["n"] == 3, f"unreadable captcha: 2 retries before showing it (requests={state['n']})")
             await ctx.close()
     finally:
         shutil.rmtree(profile, ignore_errors=True)

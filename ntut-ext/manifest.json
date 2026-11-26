@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "北科入口驗證碼自動填入 (NTUT Captcha)",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "自動辨識並填入北科大入口網站的驗證碼，並可定時保持登入狀態。不讀取、不儲存帳號密碼；辨識完全在本機執行。",
   "permissions": [
     "storage",
@@ -30,7 +30,7 @@
       "js": [
         "content.js"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
