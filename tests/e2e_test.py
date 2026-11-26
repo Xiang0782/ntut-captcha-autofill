@@ -124,7 +124,7 @@ async def main():
             check(state["n"] == 1, f"no extra captcha requests (requests={state['n']})")
             check(v["muid"] == "" and v["pwd"] == "", "account/password fields untouched")
             check(v["title"] != "SUBMITTED", "form is not auto-submitted")
-            await page.wait_for_function("document.getElementById('ntut-ext-status')?.textContent.includes('已驗證')", timeout=10000)
+            await page.wait_for_function("document.getElementById('ntut-ext-status')?.dataset.state === 'ok'", timeout=10000)
             check(not await page.is_visible("#authcode") and not await page.is_visible("#authImage"),
                   "captcha row is hidden")
             check(await page.is_visible("#muid") and await page.is_visible("#mpassword"),
@@ -135,10 +135,10 @@ async def main():
             await page.wait_for_function(f"authcode.value === '{expected}'", timeout=60000)
             check(state["n"] == 2, "after refreshing the captcha, the new image is recognized")
 
-            # 4) Clicking「顯示」reveals the captcha.
-            await page.click("#ntut-ext-status a")
+            # 4) Clicking the eye button reveals the captcha.
+            await page.click("#ntut-ext-status button")
             check(await page.is_visible("#authcode") and await page.is_visible("#authImage"),
-                  "clicking 顯示 reveals the captcha")
+                  "clicking the eye button reveals the captcha")
 
             # 5) Unreadable captcha: retry with new images twice, then show it to the user.
             state["blank"] = True

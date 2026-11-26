@@ -35,37 +35,106 @@
     }
     return parts;
   }
-  // While hidden, an inline box takes the captcha's place and shows the status
-  // (「驗證中…」→「✓ 已驗證」). Clicking「顯示」reveals the real captcha.
+  // ---- Status UI -----------------------------------------------------------
+  // One visual language for both places a status can appear:
+  //  - inline chip that takes the hidden captcha's place (sized like its input)
+  //  - floating toast at the bottom-right when the captcha is visible
+  // Both live in a shadow root so the portal's CSS can't restyle them.
+  const ICONS = {
+    busy: '<svg viewBox="0 0 24 24" class="spin"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="42 100" stroke-linecap="round"/></svg>',
+    ok: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="currentColor"/><path class="tick" d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    warn: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M12 7v6M12 16.5v.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>',
+    error: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>',
+  };
+  const EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+
+  const BASE_CSS = `
+    :host { all: initial; }
+    * { box-sizing: border-box; }
+    .ui { --fg:#334155; --muted:#94a3b8; --bg:#f8fafc; --line:#e2e8f0; --accent:#64748b;
+      font: 500 13px/1.2 -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+      color: var(--fg); letter-spacing: .02em;
+      transition: background-color .35s ease, border-color .35s ease, color .35s ease; }
+    .ui[data-state=ok]    { --fg:#065f46; --muted:#10b981; --bg:#ecfdf5; --line:#a7f3d0; --accent:#10b981; }
+    .ui[data-state=warn]  { --fg:#92400e; --muted:#d97706; --bg:#fffbeb; --line:#fde68a; --accent:#f59e0b; }
+    .ui[data-state=error] { --fg:#991b1b; --muted:#ef4444; --bg:#fef2f2; --line:#fecaca; --accent:#ef4444; }
+    .icon { flex: none; width: 16px; height: 16px; color: var(--accent); display: grid; }
+    .icon svg { width: 100%; height: 100%; }
+    .spin { animation: spin .8s linear infinite; }
+    .tick { stroke-dasharray: 16; stroke-dashoffset: 16; animation: draw .45s .1s cubic-bezier(.65,0,.35,1) forwards; }
+    .icon.pop { animation: pop .35s cubic-bezier(.34,1.56,.64,1); }
+    .dots::after { content: ''; animation: dots 1.2s steps(4) infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    @keyframes pop { from { transform: scale(.4); opacity: 0; } }
+    @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+    @media (prefers-reduced-motion: reduce) { * { animation-duration: 0s !important; animation-iteration-count: 1 !important; } }
+  `;
+
+  function render(root, state, title, sub) {
+    const ui = root.querySelector('.ui');
+    const iconEl = root.querySelector('.icon');
+    if (ui.dataset.state !== state) {
+      ui.dataset.state = state;
+      iconEl.innerHTML = ICONS[state];
+      iconEl.classList.remove('pop'); void iconEl.offsetWidth; // restart animation
+      if (state !== 'busy') iconEl.classList.add('pop');
+    }
+    const t = root.querySelector('.title');
+    t.textContent = title;
+    t.classList.toggle('dots', state === 'busy');
+    const s = root.querySelector('.sub');
+    if (s) { s.textContent = sub || ''; s.hidden = !sub; }
+  }
+
+  // Inline chip shown in place of the hidden captcha.
   let statusBox = null;
-  function makeStatusBox(anchor) {
-    const box = document.createElement('span');
-    box.id = 'ntut-ext-status';
-    box.style.cssText = 'display:inline-flex;align-items:center;gap:8px;padding:4px 10px;' +
-      'border-radius:6px;font:13px/1.6 sans-serif;color:#fff;white-space:nowrap;';
-    const text = document.createElement('span');
-    const show = document.createElement('a');
-    show.href = '#'; show.textContent = '顯示';
-    show.style.cssText = 'color:#fff;text-decoration:underline;font-size:12px;';
-    show.addEventListener('click', (e) => { e.preventDefault(); showCaptcha(); });
-    box.append(text, show);
+  function makeStatusBox(anchor, code) {
+    const r = code.getBoundingClientRect();
+    const host = document.createElement('span');
+    host.id = 'ntut-ext-status';
+    const root = host.attachShadow({ mode: 'open' });
+    root.innerHTML = `<style>${BASE_CSS}
+      .ui { display: inline-flex; align-items: center; gap: 8px; vertical-align: middle;
+        height: ${Math.max(32, Math.round(r.height) || 0)}px; min-width: ${Math.max(168, Math.round(r.width) || 0)}px;
+        padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+        position: relative; overflow: hidden; }
+      .ui[data-state=busy]::after { content: ''; position: absolute; inset: 0;
+        background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.75) 50%, transparent 70%);
+        transform: translateX(-100%); animation: sweep 1.3s ease-in-out infinite; }
+      @keyframes sweep { to { transform: translateX(100%); } }
+      .text { display: flex; align-items: baseline; gap: 6px; flex: 1; white-space: nowrap; }
+      .sub { font-size: 11px; font-weight: 400; color: var(--muted); }
+      button { all: unset; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 6px;
+        color: var(--muted); cursor: pointer; transition: background-color .2s, color .2s; }
+      button:hover { background: rgba(0,0,0,.05); color: var(--fg); }
+      button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button svg { width: 16px; height: 16px; }
+    </style>
+    <span class="ui" role="status" aria-live="polite">
+      <span class="icon"></span>
+      <span class="text"><span class="title"></span><span class="sub" hidden></span></span>
+      <button type="button" title="顯示驗證碼" aria-label="顯示驗證碼">${EYE}</button>
+    </span>`;
+    root.querySelector('button').addEventListener('click', (e) => { e.preventDefault(); showCaptcha(); });
     // A hidden table row can't be replaced by a bare <span>: give it a row of its own.
-    let holder = box;
+    let holder = host;
     if (anchor.tagName === 'TR') {
       holder = document.createElement('tr');
       const td = document.createElement('td');
       td.colSpan = Math.max(1, anchor.cells.length);
-      td.appendChild(box); holder.appendChild(td);
+      td.appendChild(host); holder.appendChild(td);
     }
     anchor.parentNode.insertBefore(holder, anchor);
-    return { holder, box, text };
+    return { holder, host, root };
   }
 
   function hideCaptcha(img, code) {
     addStyle('ntut-ext-hide', `.${HIDDEN_CLASS}{display:none!important}`);
     hiddenEls = captchaParts(img, code);
+    // Measure the input while it still occupies layout (early style uses visibility).
+    statusBox = makeStatusBox(hiddenEls.length === 1 ? hiddenEls[0] : code, code);
     hiddenEls.forEach((el) => el.classList.add(HIDDEN_CLASS));
-    statusBox = makeStatusBox(hiddenEls.length === 1 ? hiddenEls[0] : code);
     document.getElementById(EARLY_STYLE_ID)?.remove();
   }
   function showCaptcha() {
@@ -75,26 +144,55 @@
     document.getElementById(EARLY_STYLE_ID)?.remove();
   }
 
-  // Status message: in the inline box while the captcha is hidden, otherwise in
-  // a floating badge at the bottom-right.
-  function badge(text, color) {
-    let el = document.getElementById('ntut-ext-badge');
+  // Floating toast, used when the captcha is visible.
+  let toast = null, toastTimer = 0;
+  function getToast() {
+    if (toast && toast.host.isConnected) return toast;
+    const host = document.createElement('div');
+    host.id = 'ntut-ext-badge';
+    const root = host.attachShadow({ mode: 'open' });
+    root.innerHTML = `<style>${BASE_CSS}
+      .ui { position: fixed; z-index: 2147483647; right: 20px; bottom: 20px; display: flex; gap: 10px;
+        align-items: flex-start; max-width: 300px; padding: 12px 14px 12px 12px; border-radius: 12px;
+        background: rgba(255,255,255,.92); backdrop-filter: blur(12px) saturate(1.4);
+        border: 1px solid rgba(15,23,42,.08); border-left: 3px solid var(--accent);
+        box-shadow: 0 1px 2px rgba(15,23,42,.06), 0 12px 32px -8px rgba(15,23,42,.22);
+        animation: in .4s cubic-bezier(.16,1,.3,1); transition: opacity .3s, transform .3s; }
+      .ui.out { opacity: 0; transform: translateY(8px); }
+      .icon { margin-top: 1px; }
+      .text { display: grid; gap: 3px; }
+      .title { color: #0f172a; font-weight: 600; }
+      .sub { font-size: 12px; font-weight: 400; color: #64748b; line-height: 1.45; white-space: pre-wrap; }
+      @keyframes in { from { opacity: 0; transform: translateY(12px) scale(.97); } }
+    </style>
+    <div class="ui" role="status" aria-live="polite">
+      <span class="icon"></span>
+      <div class="text"><span class="title"></span><span class="sub" hidden></span></div>
+    </div>`;
+    document.body.appendChild(host);
+    toast = { host, root };
+    return toast;
+  }
+
+  // state: 'busy' | 'ok' | 'warn' | 'error'
+  function badge(state, title, sub) {
+    clearTimeout(toastTimer);
     if (statusBox) {
-      statusBox.text.textContent = text;
-      statusBox.box.style.background = color || '#2563eb';
-      if (el) el.remove();
+      if (toast) { toast.host.remove(); toast = null; }
+      statusBox.host.dataset.state = state;
+      render(statusBox.root, state, title, sub);
       return;
     }
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'ntut-ext-badge';
-      el.style.cssText = 'position:fixed;z-index:999999;right:12px;bottom:12px;padding:8px 12px;' +
-        'border-radius:8px;font:13px/1.4 sans-serif;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.3);' +
-        'max-width:260px;white-space:pre-wrap;';
-      document.body.appendChild(el);
+    const t = getToast();
+    t.host.dataset.state = state;
+    t.root.querySelector('.ui').classList.remove('out');
+    render(t.root, state, title, sub);
+    if (state === 'ok') {
+      toastTimer = setTimeout(() => {
+        t.root.querySelector('.ui').classList.add('out');
+        toastTimer = setTimeout(() => { t.host.remove(); if (toast === t) toast = null; }, 300);
+      }, 4000);
     }
-    el.style.background = color || '#2563eb';
-    el.textContent = text;
   }
 
   // Read the captcha already displayed on the page (no extra request to the
@@ -138,7 +236,7 @@
     if (!code || !img.complete || !img.naturalWidth) return;
     const id = ++runId;
     try {
-      badge(statusBox ? '驗證中…' : '辨識驗證碼中…', '#2563eb');
+      badge('busy', statusBox ? '驗證中' : '辨識驗證碼中');
       const text = await ocr(await imageBytes(img));
       if (id !== runId) return; // a newer captcha image replaced this one
       code.value = text;
@@ -146,18 +244,18 @@
       code.dispatchEvent(new Event('change', { bubbles: true }));
       if (text.length === 4) {
         retries = 0;
-        badge(statusBox ? '✓ 已驗證' : '驗證碼已自動填入：' + text, '#16a34a');
+        badge('ok', statusBox ? '已驗證' : '驗證碼已自動填入', statusBox ? '自動辨識' : text);
       } else if (hiddenEls.length && retries < MAX_RETRIES) {
         retries++;
-        badge('驗證中…（重試 ' + retries + '）', '#2563eb');
+        badge('busy', '驗證中', '重試 ' + retries + '/' + MAX_RETRIES);
         newCaptchaImage(img);
       } else {
         showCaptcha();
-        badge('辨識結果可能有誤：' + (text || '（空白）') + '\n請確認驗證碼，或按「更新驗證碼」換一張', '#d97706');
+        badge('warn', '請確認驗證碼', '辨識結果：' + (text || '（空白）') + '\n可修正，或按「更新驗證碼」換一張');
       }
     } catch (e) {
       showCaptcha();
-      badge('驗證碼辨識失敗：' + e.message + '\n請手動輸入驗證碼', '#b91c1c');
+      badge('error', '無法自動辨識，請手動輸入', e.message);
     }
   }
 
