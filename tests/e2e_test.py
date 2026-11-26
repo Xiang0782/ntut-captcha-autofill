@@ -21,7 +21,7 @@ from playwright.async_api import async_playwright
 ROOT = Path(__file__).resolve().parent.parent
 EXT = str(ROOT / "ntut-ext")
 SAMPLES = ROOT / "tests" / "samples"
-# Sample file names are the correct answers (case-insensitive).
+# Sample file names are the correct answers (uppercase; output must match exactly).
 IMAGES = sorted(SAMPLES.glob("*.png"))
 
 LOGIN_PAGE = """<html><head><title>臺北科技大學</title><script>
@@ -79,7 +79,7 @@ async def main():
             for img in IMAGES:
                 resp = await popup.evaluate(
                     "(b) => chrome.runtime.sendMessage({type:'ocr', bytes:b})", list(img.read_bytes()))
-                check(resp.get("ok") and resp["text"].lower() == img.stem.lower(),
+                check(resp.get("ok") and resp["text"] == img.stem,
                       f"OCR {img.name}: got {resp.get('text') or resp.get('error')}")
 
             # 3) Login page flow against a server that rotates the code on every image request.
@@ -100,15 +100,15 @@ async def main():
             await page.goto("https://nportal.ntut.edu.tw/index.do")
             await page.wait_for_function("authcode.value.length > 0", timeout=60000)
             v = await page.evaluate("({code: authcode.value, muid: muid.value, pwd: mpassword.value, title: document.title})")
-            check(v["code"].lower() == state["current"].lower(),
+            check(v["code"] == state["current"],
                   f"filled captcha matches the server's current code ({v['code']} vs {state['current']})")
             check(state["n"] == 1, f"no extra captcha requests (requests={state['n']})")
             check(v["muid"] == "" and v["pwd"] == "", "account/password fields untouched")
             check(v["title"] != "SUBMITTED", "form is not auto-submitted")
 
             await page.evaluate("refreshAuthImage()")
-            expected = IMAGES[1 % len(IMAGES)].stem.lower()
-            await page.wait_for_function(f"authcode.value.toLowerCase() === '{expected}'", timeout=60000)
+            expected = IMAGES[1 % len(IMAGES)].stem
+            await page.wait_for_function(f"authcode.value === '{expected}'", timeout=60000)
             check(state["n"] == 2, "after refreshing the captcha, the new image is recognized")
             await ctx.close()
     finally:
