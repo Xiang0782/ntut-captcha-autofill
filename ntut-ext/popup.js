@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 
-const KEYS = ['captchaEnabled', 'keepAlive', 'keepAliveMinutes', 'keepAliveStatus'];
+const KEYS = ['captchaEnabled', 'hideCaptcha', 'keepAlive', 'keepAliveMinutes', 'keepAliveStatus'];
 
 function renderStatus(st) {
   const el = $('kaStatus');
@@ -17,6 +17,7 @@ function renderStatus(st) {
 
 chrome.storage.local.get(KEYS).then((s) => {
   $('captchaEnabled').checked = s.captchaEnabled !== false;
+  $('hideCaptcha').checked = s.hideCaptcha !== false;
   $('keepAlive').checked = s.keepAlive !== false;
   $('keepAliveMinutes').value = s.keepAliveMinutes || 10;
   renderStatus(s.keepAliveStatus);
@@ -30,6 +31,7 @@ $('save').addEventListener('click', async () => {
   const keepAliveMinutes = Math.min(25, Math.max(1, parseInt($('keepAliveMinutes').value, 10) || 10));
   await chrome.storage.local.set({
     captchaEnabled: $('captchaEnabled').checked,
+    hideCaptcha: $('hideCaptcha').checked,
     keepAlive: $('keepAlive').checked,
     keepAliveMinutes,
   });

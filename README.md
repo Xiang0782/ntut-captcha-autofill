@@ -9,6 +9,7 @@ A Chrome extension that recognizes and fills in the captcha on the NTUT (Nationa
 ## 功能
 
 - **驗證碼自動填入**：開啟登入頁時自動辨識並填入驗證碼；按「更新驗證碼」換圖後會重新辨識。
+- **隱藏驗證碼**（預設開啟，可在設定關閉）：驗證碼欄位換成「已驗證」狀態元件，點右側眼睛圖示可看原本的驗證碼。辨識結果不是 4 個字母時會自動換圖重試 2 次，仍失敗才顯示驗證碼讓你手動輸入。
 - **維持登入**：每隔 N 分鐘（預設 10 分鐘，可設 1–25）請求一次入口網站頁面，重設伺服器的閒置計時；登入狀態可在設定視窗查看，掉線時工具列圖示顯示紅色「!」。
 - **不碰帳號密碼**：不讀取、不儲存、不自動送出帳號密碼。帳密請自行輸入，或交給瀏覽器的密碼管理員。
 - **完全在本機執行**：辨識使用內建的 OCR 模型，在瀏覽器裡用 WebAssembly 推論，驗證碼圖片不會傳送到任何外部伺服器。
@@ -23,9 +24,9 @@ A Chrome extension that recognizes and fills in the captcha on the NTUT (Nationa
 
 ## 使用
 
-打開 https://nportal.ntut.edu.tw/index.do ，驗證碼欄位會自動填好，右下角會顯示辨識結果；輸入帳號密碼後按登入即可。點工具列圖示可以開關驗證碼自動填入，以及設定維持登入。
+打開 https://nportal.ntut.edu.tw/index.do ，驗證碼欄位會自動填好並顯示「已驗證」；輸入帳號密碼後按登入即可。點工具列圖示可以開關驗證碼自動填入，以及設定維持登入。
 
-單次辨識準確率約七到八成。如果驗證碼錯了，按「更新驗證碼」換一張就會重新辨識。
+如果驗證碼錯了，按「更新驗證碼」換一張就會重新辨識。
 
 ## 運作方式
 
@@ -36,7 +37,7 @@ A Chrome extension that recognizes and fills in the captcha on the NTUT (Nationa
 | `offscreen.html/js` | 隱藏頁面，用 onnxruntime-web 跑 OCR 模型。onnxruntime-web 需要動態 `import()`，而 Chrome 不允許 Service Worker 使用，所以放在這裡。 |
 | `popup.html/js` | 設定介面。 |
 
-辨識流程：灰階化 → 以亮度 150 二值化（去掉淺色干擾線與背景）→ 等比例縮放到高 64 px → 模型推論 → CTC 解碼 → 只保留英文字母。
+辨識流程：灰階化 → 以亮度 150 二值化（去掉淺色干擾線與背景）→ 等比例縮放到高 64 px → 模型推論 → CTC 解碼。解碼時每一步只在「空白＋A–Z」中選，並把同一字母大小寫的機率合併，輸出一律為大寫；若結果不是 4 個字母，改用亮度 170、130 再試。
 
 維持登入會優先從已開著的入口網站分頁送出請求（同源，一定帶得到 session cookie）；沒有分頁時才從背景送出。
 

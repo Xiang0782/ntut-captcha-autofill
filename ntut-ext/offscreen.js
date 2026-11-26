@@ -64,32 +64,69 @@ async function preprocess(bytes, threshold) {
   return { data: out, W: tW, H: tH };
 }
 
+// NTUT captchas are 4 uppercase letters. The ddddocr model predicts ~8k classes
+// (mostly CJK) and often outputs lowercase look-alikes (u/U, j/J, y/Y...). So:
+// softmax each step, merge each letter's upper+lower probability, and take the
+// argmax over {blank, A..Z} only. Restricting the choice (instead of filtering
+// after argmax) keeps a letter even when a CJK class narrowly won that step.
+let letterMap = null; // [{ ch: 'A', ids: [idxOfA, idxOfa] }, ...]
+function getLetterMap(charset) {
+  if (!letterMap) {
+    const by = new Map();
+    charset.forEach((ch, i) => {
+      if (/^[A-Za-z]$/.test(ch)) {
+        const up = ch.toUpperCase();
+        if (!by.has(up)) by.set(up, []);
+        by.get(up).push(i);
+      }
+    });
+    letterMap = [...by.entries()].sort().map(([ch, ids]) => ({ ch, ids }));
+  }
+  return letterMap;
+}
+
 function ctcDecode(output, dims, charset) {
-  const [a, b, c] = dims;
-  let seq, classes, get;
-  if (b === 1) { seq = a; classes = c; get = (s, k) => output[s * classes + k]; }
-  else { seq = b; classes = c; get = (s, k) => output[s * classes + k]; }
+  const classes = dims[dims.length - 1];
+  const seq = output.length / classes;
+  const letters = getLetterMap(charset);
   let last = -1; const chars = [];
   for (let s = 0; s < seq; s++) {
-    let best = -Infinity, bi = 0;
-    for (let k = 0; k < classes; k++) { const v = get(s, k); if (v > best) { best = v; bi = k; } }
-    if (bi !== last && bi !== 0) chars.push(charset[bi] || '');
+    const off = s * classes;
+    let max = -Infinity;
+    for (let k = 0; k < classes; k++) if (output[off + k] > max) max = output[off + k];
+    // Unnormalized probabilities are enough for comparing classes at one step.
+    let best = Math.exp(output[off] - max), bi = 0; // blank
+    for (let j = 0; j < letters.length; j++) {
+      let p = 0;
+      for (const id of letters[j].ids) p += Math.exp(output[off + id] - max);
+      if (p > best) { best = p; bi = j + 1; }
+    }
+    if (bi !== last && bi !== 0) chars.push(letters[bi - 1].ch);
     last = bi;
   }
   return chars.join('');
 }
 
-async function recognize(bytes) {
-  const session = await getSession();
-  const charset = await getCharset();
-  const pre = await preprocess(bytes, 150);
+async function recognizeAt(session, charset, bytes, threshold) {
+  const pre = await preprocess(bytes, threshold);
   const tensor = new ort.Tensor('float32', pre.data, [1, 1, pre.H, pre.W]);
   const res = await session.run({ [session.inputNames[0]]: tensor });
   const out = res[session.outputNames[0]];
-  let text = ctcDecode(out.data, out.dims, charset);
-  // NTUT captcha = letters only, case-insensitive. Keep a-z.
-  text = text.replace(/[^a-zA-Z]/g, '');
-  return text;
+  return ctcDecode(out.data, out.dims, charset);
+}
+
+async function recognize(bytes) {
+  const session = await getSession();
+  const charset = await getCharset();
+  // Binarizing at 150 removes the pale noise lines and background. If that
+  // doesn't yield 4 letters, retry at nearby thresholds before giving up.
+  let first = null;
+  for (const th of [150, 170, 130]) {
+    const text = await recognizeAt(session, charset, bytes, th);
+    if (first === null) first = text;
+    if (text.length === 4) return text;
+  }
+  return first;
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
