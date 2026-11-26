@@ -147,6 +147,24 @@ async def main():
             await page2.goto("https://nportal.ntut.edu.tw/index.do")
             await page2.wait_for_selector("#authcode", state="visible", timeout=60000)
             check(state["n"] == 3, f"unreadable captcha: 2 retries before showing it (requests={state['n']})")
+
+            # 6) Popup saves the hide option; with hiding off the captcha stays visible
+            #    and is still filled in.
+            await popup.reload()
+            await popup.wait_for_load_state()
+            await asyncio.sleep(0.5)  # popup.js fills the checkboxes from storage asynchronously
+            check(await popup.is_checked("#hideCaptcha"), "popup: hide option defaults to on")
+            await popup.uncheck("#hideCaptcha")
+            await popup.click("#save")
+            saved = await sw.evaluate("chrome.storage.local.get('hideCaptcha')")
+            check(saved.get("hideCaptcha") is False, "popup: hide option is saved")
+            state["blank"] = False
+            page3 = await ctx.new_page()
+            await page3.goto("https://nportal.ntut.edu.tw/index.do")
+            await page3.wait_for_function("authcode.value.length === 4", timeout=60000)
+            check(await page3.is_visible("#authcode") and await page3.is_visible("#authImage")
+                  and await page3.evaluate("!document.getElementById('ntut-ext-status')"),
+                  "hiding off: captcha visible and filled, no inline status")
             await ctx.close()
     finally:
         shutil.rmtree(profile, ignore_errors=True)
